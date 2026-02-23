@@ -161,8 +161,9 @@ export default defineConfig({
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
   publicDir: path.resolve(import.meta.dirname, "client", "public"),
+  base: "./", // Ensure correct asset paths for deployment
   build: {
-    outDir: path.resolve(import.meta.dirname, "../dist"),
+    outDir: path.resolve(import.meta.dirname, "client", "dist"), // Place build output inside the client folder
     emptyOutDir: true,
   },
   server: {
