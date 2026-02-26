@@ -3,15 +3,13 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 
-const PROJECT_ROOT = __dirname; // Define PROJECT_ROOT as the current directory
-
-// Replacing all occurrences of 'manus' with 'peresores' and 'Manus' with 'Peresores'
-// Peresores Debug Collector - Vite Plugin
-const LOG_DIR = path.join(PROJECT_ROOT, ".peresores-logs");
-const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
-const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const LOG_DIR = path.join(projectRoot, ".peresores-logs");
+const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024;
+const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6);
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
@@ -31,18 +29,16 @@ function trimLogFile(logPath: string, maxSize: number) {
     const keptLines: string[] = [];
     let keptBytes = 0;
 
-    // Keep newest lines (from end) that fit within 60% of maxSize
-    const targetSize = TRIM_TARGET_BYTES;
     for (let i = lines.length - 1; i >= 0; i--) {
       const lineBytes = Buffer.byteLength(`${lines[i]}\n`, "utf-8");
-      if (keptBytes + lineBytes > targetSize) break;
+      if (keptBytes + lineBytes > TRIM_TARGET_BYTES) break;
       keptLines.unshift(lines[i]);
       keptBytes += lineBytes;
     }
 
     fs.writeFileSync(logPath, keptLines.join("\n"), "utf-8");
   } catch {
-    /* ignore trim errors */
+    // ignore trim errors
   }
 }
 
@@ -51,30 +47,15 @@ function writeToLogFile(source: LogSource, entries: unknown[]) {
 
   ensureLogDir();
   const logPath = path.join(LOG_DIR, `${source}.log`);
+  const lines = entries.map((entry) => `[${new Date().toISOString()}] ${JSON.stringify(entry)}`);
 
-  // Format entries with timestamps
-  const lines = entries.map((entry) => {
-    const ts = new Date().toISOString();
-    return `[${ts}] ${JSON.stringify(entry)}`;
-  });
-
-  // Append to log file
   fs.appendFileSync(logPath, `${lines.join("\n")}\n`, "utf-8");
-
-  // Trim if exceeds max size
   trimLogFile(logPath, MAX_LOG_SIZE_BYTES);
 }
 
-/**
- * Vite plugin to collect browser debug logs
- * - POST /__peresores__/logs: Browser sends logs, written directly to files
- * - Files: browserConsole.log, networkRequests.log, sessionReplay.log
- * - Auto-trimmed when exceeding 1MB (keeps newest entries)
- */
 function vitePluginPeresoresDebugCollector(): Plugin {
   return {
     name: "peresores-debug-collector",
-
     transformIndexHtml(html) {
       if (process.env.NODE_ENV === "production") {
         return html;
@@ -93,16 +74,13 @@ function vitePluginPeresoresDebugCollector(): Plugin {
         ],
       };
     },
-
     configureServer(server: ViteDevServer) {
-      // POST /__peresores__/logs: Browser sends logs (written directly to files)
       server.middlewares.use("/__peresores__/logs", (req, res, next) => {
         if (req.method !== "POST") {
           return next();
         }
 
         const handlePayload = (payload: any) => {
-          // Write logs directly to files
           if (payload.consoleLogs?.length > 0) {
             writeToLogFile("browserConsole", payload.consoleLogs);
           }
@@ -147,23 +125,21 @@ function vitePluginPeresoresDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginPeresoresDebugCollector()];
-
 export default defineConfig({
-  plugins,
+  plugins: [react(), tailwindcss(), jsxLocPlugin(), vitePluginPeresoresDebugCollector()],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "@": path.resolve(projectRoot, "client", "src"),
+      "@shared": path.resolve(projectRoot, "shared"),
+      "@assets": path.resolve(projectRoot, "attached_assets"),
     },
   },
-  envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
-  publicDir: path.resolve(import.meta.dirname, "client", "public"),
+  envDir: projectRoot,
+  root: path.resolve(projectRoot, "client"),
+  publicDir: path.resolve(projectRoot, "client", "public"),
   base: "/",
   build: {
-    outDir: path.resolve(import.meta.dirname, "client", "dist"), // Place build output inside the client folder
+    outDir: path.resolve(projectRoot, "dist"),
     emptyOutDir: true,
   },
   server: {

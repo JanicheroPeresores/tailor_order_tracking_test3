@@ -1,23 +1,17 @@
-// Basic structure for server/_core/index.ts
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Serve static files from the dist folder
-const distPath = path.resolve(__dirname, '../../dist');
-app.use(express.static(distPath));
+const clientDistPath = path.resolve(process.cwd(), 'dist');
+app.use(express.static(clientDistPath));
 
-// Serve index.html for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
 app.listen(PORT, () => {
