@@ -1,4 +1,3 @@
-import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -126,7 +125,7 @@ function vitePluginPeresoresDebugCollector(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), jsxLocPlugin(), vitePluginPeresoresDebugCollector()],
+  plugins: [react(), tailwindcss(), vitePluginPeresoresDebugCollector()],
   resolve: {
     alias: {
       "@": path.resolve(projectRoot, "client", "src"),
@@ -159,3 +158,4 @@ export default defineConfig({
     },
   },
 });
+
