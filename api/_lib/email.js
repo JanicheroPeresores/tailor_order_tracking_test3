@@ -1,20 +1,40 @@
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const EMAIL_FROM = process.env.EMAIL_FROM;
-const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO;
+import nodemailer from 'nodemailer';
+
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const SMTP_FROM = process.env.SMTP_FROM || process.env.SMTP_USER;
+const SMTP_SECURE = String(process.env.SMTP_SECURE || 'false') === 'true';
+
+let transporter = null;
 
 function hasEmailConfig() {
-  return Boolean(RESEND_API_KEY && EMAIL_FROM);
+  return Boolean(SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS && SMTP_FROM);
+}
+
+function getTransporter() {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS,
+      },
+    });
+  }
+
+  return transporter;
 }
 
 export function getEmailConfigError() {
-  if (!RESEND_API_KEY) {
-    return 'Missing RESEND_API_KEY';
-  }
-
-  if (!EMAIL_FROM) {
-    return 'Missing EMAIL_FROM';
-  }
-
+  if (!SMTP_HOST) return 'Missing SMTP_HOST';
+  if (!SMTP_PORT) return 'Missing SMTP_PORT';
+  if (!SMTP_USER) return 'Missing SMTP_USER';
+  if (!SMTP_PASS) return 'Missing SMTP_PASS';
+  if (!SMTP_FROM) return 'Missing SMTP_FROM';
   return null;
 }
 
@@ -28,42 +48,27 @@ export async function sendEmail({ to, subject, html }) {
     throw new Error('Missing recipient email address');
   }
 
-  const payload = {
-    from: EMAIL_FROM,
-    to: [to],
+  await getTransporter().sendMail({
+    from: SMTP_FROM,
+    to,
     subject,
     html,
-  };
-
-  if (EMAIL_REPLY_TO) {
-    payload.reply_to = EMAIL_REPLY_TO;
-  }
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
   });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Email send failed with ${response.status}`);
-  }
 }
 
-function buildReadyEmail({ customerName, orderId, itemType, dueDate }) {
+function buildReadyEmail({ customerName, orderId, itemType }) {
   return {
-    subject: `Your ${itemType} is ready for pickup`,
+    subject: 'Your item is now ready for pickup',
     html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1a1a1a;">
-        <h2 style="margin-bottom: 12px;">Your item is ready</h2>
-        <p>Hello ${customerName},</p>
-        <p>Your order <strong>${orderId}</strong> for <strong>${itemType}</strong> is now ready for pickup.</p>
-        <p>Due date: ${dueDate}</p>
-        <p>Please contact the shop if you need delivery or a pickup schedule.</p>
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; background: #183153; border-radius: 8px; color: #ffffff;">
+        <h1 style="color: #ffd166; text-align: center; margin-bottom: 20px;">Tailor Order Tracking</h1>
+        <h2 style="text-align: center; margin-bottom: 16px; color: #8be9fd;">Item Ready for Pickup</h2>
+        <div style="background: #0f1f36; border: 1px solid #8be9fd; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <p style="margin: 0 0 10px 0;">Hello ${customerName},</p>
+          <p style="margin: 0 0 10px 0;">Your item is now ready for pickup.</p>
+          <p style="margin: 0; color: #ffd166; font-weight: 700;">Order Number: ${orderId}</p>
+          <p style="margin: 10px 0 0 0; color: #d9e6f2;">Item: ${itemType}</p>
+        </div>
       </div>
     `,
   };
@@ -71,13 +76,17 @@ function buildReadyEmail({ customerName, orderId, itemType, dueDate }) {
 
 function buildDeliveredEmail({ customerName, orderId, itemType }) {
   return {
-    subject: `Your ${itemType} has been marked as delivered`,
+    subject: 'Your item is on delivery today',
     html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1a1a1a;">
-        <h2 style="margin-bottom: 12px;">Order delivered</h2>
-        <p>Hello ${customerName},</p>
-        <p>Your order <strong>${orderId}</strong> for <strong>${itemType}</strong> has been marked as delivered.</p>
-        <p>If this status is incorrect, please contact the shop immediately.</p>
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; background: #183153; border-radius: 8px; color: #ffffff;">
+        <h1 style="color: #ffd166; text-align: center; margin-bottom: 20px;">Tailor Order Tracking</h1>
+        <h2 style="text-align: center; margin-bottom: 16px; color: #8be9fd;">Delivery Update</h2>
+        <div style="background: #0f1f36; border: 1px solid #8be9fd; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <p style="margin: 0 0 10px 0;">Hello ${customerName},</p>
+          <p style="margin: 0 0 10px 0;">Your item is on delivery and will be delivered today.</p>
+          <p style="margin: 0; color: #ffd166; font-weight: 700;">Order Number: ${orderId}</p>
+          <p style="margin: 10px 0 0 0; color: #d9e6f2;">Item: ${itemType}</p>
+        </div>
       </div>
     `,
   };
@@ -93,7 +102,6 @@ export async function sendStatusNotification({ customer, order, previousStatus }
       customerName: customer.name,
       orderId: order.id,
       itemType: order.item_type,
-      dueDate: order.due_date,
     });
     await sendEmail({ to: customer.email, ...email });
     return;

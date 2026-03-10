@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1a1a1a;">
           <h2>Email integration test</h2>
-          <p>This confirms your Vercel email configuration is working.</p>
+          <p>This confirms your SMTP configuration is working.</p>
         </div>
       `,
     });
