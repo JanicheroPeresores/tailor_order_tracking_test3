@@ -96,7 +96,6 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'Invalid order payload.' });
       }
 
-      const notificationFields = {};
       const shouldSendReadyNotification =
         payload.status === 'Ready' && existingOrder.status !== 'Ready' && !existingOrder.ready_notified_at;
       const shouldSendDeliveredNotification =
@@ -104,21 +103,14 @@ export default async function handler(req, res) {
         existingOrder.status !== 'Delivered' &&
         !existingOrder.delivered_notified_at;
 
-      if (shouldSendReadyNotification) {
-        notificationFields.ready_notified_at = new Date().toISOString();
-      }
-
-      if (shouldSendDeliveredNotification) {
-        notificationFields.delivered_notified_at = new Date().toISOString();
-      }
-
       const [updated] = await supabaseRequest(`/rest/v1/orders?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ ...payload, ...notificationFields }),
+        body: JSON.stringify(payload),
       });
 
       let notificationError = null;
+      let finalOrder = updated;
       if (shouldSendReadyNotification || shouldSendDeliveredNotification) {
         try {
           const customer = await getCustomerById(updated.customer_id);
@@ -127,6 +119,22 @@ export default async function handler(req, res) {
             order: updated,
             previousStatus: existingOrder.status,
           });
+
+          const deliveredAt =
+            shouldSendDeliveredNotification && !updated.delivered_notified_at ? new Date().toISOString() : updated.delivered_notified_at;
+          const readyAt =
+            shouldSendReadyNotification && !updated.ready_notified_at ? new Date().toISOString() : updated.ready_notified_at;
+
+          const [notificationUpdatedOrder] = await supabaseRequest(`/rest/v1/orders?id=eq.${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body: JSON.stringify({
+              ready_notified_at: readyAt,
+              delivered_notified_at: deliveredAt,
+            }),
+          });
+
+          finalOrder = notificationUpdatedOrder;
         } catch (emailError) {
           console.error('Email notification failed:', emailError);
           notificationError = emailError instanceof Error ? emailError.message : 'Email notification failed.';
@@ -134,7 +142,7 @@ export default async function handler(req, res) {
       }
 
       return sendJson(res, 200, {
-        order: normalizeOrder(updated),
+        order: normalizeOrder(finalOrder),
         notificationError,
       });
     }
