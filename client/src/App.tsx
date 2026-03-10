@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './index.css';
 
 type OrderStatus = 'Pending' | 'In Progress' | 'Ready' | 'Delivered';
@@ -55,42 +55,6 @@ const allColumns: Array<{ key: ColumnKey; label: string }> = [
   { key: 'notes', label: 'Notes' },
 ];
 
-const seedCustomers: Customer[] = [
-  { id: 'CUS-1001', name: 'Ava Johnson', phone: '555-1022', email: 'ava@example.com', address: '742 Pine St' },
-  { id: 'CUS-1002', name: 'Liam Carter', phone: '555-8842', email: 'liam@example.com', address: '195 Oak Ave' },
-  { id: 'CUS-1003', name: 'Noah Smith', phone: '555-3312', email: 'noah@example.com', address: '83 Maple Rd' },
-];
-
-const seedOrders: TailorOrder[] = [
-  {
-    id: 'ORD-1001',
-    customerId: 'CUS-1001',
-    itemType: 'Blazer',
-    dueDate: '2026-03-02',
-    status: 'In Progress',
-    totalPrice: 140,
-    notes: 'Navy wool, slim fit',
-  },
-  {
-    id: 'ORD-1002',
-    customerId: 'CUS-1002',
-    itemType: 'Trouser Hem',
-    dueDate: '2026-02-28',
-    status: 'Ready',
-    totalPrice: 35,
-    notes: 'Taper below knee',
-  },
-  {
-    id: 'ORD-1003',
-    customerId: 'CUS-1003',
-    itemType: 'Wedding Suit',
-    dueDate: '2026-03-10',
-    status: 'Pending',
-    totalPrice: 420,
-    notes: 'First fitting needed',
-  },
-];
-
 const emptyCustomerForm: CustomerForm = {
   name: '',
   phone: '',
@@ -114,11 +78,41 @@ function formatDate(value: string) {
   return date.toLocaleDateString();
 }
 
+function formatPeso(value: number) {
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(errorBody || `Request failed with ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  return response.json();
+}
+
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('customer');
-
-  const [customers, setCustomers] = useState<Customer[]>(seedCustomers);
-  const [orders, setOrders] = useState<TailorOrder[]>(seedOrders);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<TailorOrder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminUser, setAdminUser] = useState('');
@@ -160,7 +154,7 @@ function App() {
       delivered,
       totalRevenue,
     };
-  }, [orders, customers.length]);
+  }, [customers.length, orders]);
 
   const customerPanelOrders = useMemo(() => {
     return orders
@@ -172,7 +166,7 @@ function App() {
         return searchable.includes(customerSearch.trim().toLowerCase());
       })
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  }, [orders, customerMap, customerSearch, customerStatusFilter]);
+  }, [customerMap, customerSearch, customerStatusFilter, orders]);
 
   const adminFilteredOrders = useMemo(() => {
     return orders
@@ -184,7 +178,28 @@ function App() {
         return searchable.includes(adminOrderSearch.trim().toLowerCase());
       })
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  }, [orders, customerMap, adminOrderSearch, adminOrderStatusFilter]);
+  }, [adminOrderSearch, adminOrderStatusFilter, customerMap, orders]);
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      setLoadError('');
+      const [customerData, orderData] = await Promise.all([
+        apiRequest<Customer[]>('/api/customers'),
+        apiRequest<TailorOrder[]>('/api/orders'),
+      ]);
+      setCustomers(customerData);
+      setOrders(orderData);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Failed to load data.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   function resetCustomerForm() {
     setEditingCustomerId(null);
@@ -217,7 +232,7 @@ function App() {
     resetOrderForm();
   }
 
-  function submitCustomer(e: React.FormEvent<HTMLFormElement>) {
+  async function submitCustomer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCustomerFormError('');
 
@@ -233,15 +248,25 @@ function App() {
       address: customerForm.address.trim(),
     };
 
-    if (editingCustomerId) {
-      setCustomers((prev) => prev.map((customer) => (customer.id === editingCustomerId ? { ...customer, ...payload } : customer)));
-      resetCustomerForm();
-      return;
-    }
+    try {
+      if (editingCustomerId) {
+        const updated = await apiRequest<Customer>(`/api/customers?id=${encodeURIComponent(editingCustomerId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        setCustomers((prev) => prev.map((customer) => (customer.id === editingCustomerId ? updated : customer)));
+      } else {
+        const created = await apiRequest<Customer>('/api/customers', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        setCustomers((prev) => [created, ...prev]);
+      }
 
-    const nextId = `CUS-${Date.now().toString().slice(-6)}`;
-    setCustomers((prev) => [{ id: nextId, ...payload }, ...prev]);
-    resetCustomerForm();
+      resetCustomerForm();
+    } catch (error) {
+      setCustomerFormError(error instanceof Error ? error.message : 'Failed to save customer.');
+    }
   }
 
   function editCustomer(customer: Customer) {
@@ -255,15 +280,20 @@ function App() {
     setCustomerFormError('');
   }
 
-  function deleteCustomer(customerId: string) {
-    setCustomers((prev) => prev.filter((customer) => customer.id !== customerId));
-    setOrders((prev) => prev.filter((order) => order.customerId !== customerId));
-    if (editingCustomerId === customerId) {
-      resetCustomerForm();
+  async function deleteCustomer(customerId: string) {
+    try {
+      await apiRequest<null>(`/api/customers?id=${encodeURIComponent(customerId)}`, { method: 'DELETE' });
+      setCustomers((prev) => prev.filter((customer) => customer.id !== customerId));
+      setOrders((prev) => prev.filter((order) => order.customerId !== customerId));
+      if (editingCustomerId === customerId) {
+        resetCustomerForm();
+      }
+    } catch (error) {
+      setCustomerFormError(error instanceof Error ? error.message : 'Failed to delete customer.');
     }
   }
 
-  function submitOrder(e: React.FormEvent<HTMLFormElement>) {
+  async function submitOrder(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setOrderFormError('');
 
@@ -278,7 +308,7 @@ function App() {
       return;
     }
 
-    const payload: Omit<TailorOrder, 'id'> = {
+    const payload = {
       customerId: orderForm.customerId,
       itemType: orderForm.itemType.trim(),
       dueDate: orderForm.dueDate,
@@ -287,20 +317,25 @@ function App() {
       notes: orderForm.notes.trim(),
     };
 
-    if (editingOrderId) {
-      setOrders((prev) => prev.map((order) => (order.id === editingOrderId ? { ...order, ...payload } : order)));
+    try {
+      if (editingOrderId) {
+        const updated = await apiRequest<TailorOrder>(`/api/orders?id=${encodeURIComponent(editingOrderId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        setOrders((prev) => prev.map((order) => (order.id === editingOrderId ? updated : order)));
+      } else {
+        const created = await apiRequest<TailorOrder>('/api/orders', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        setOrders((prev) => [created, ...prev]);
+      }
+
       resetOrderForm();
-      return;
+    } catch (error) {
+      setOrderFormError(error instanceof Error ? error.message : 'Failed to save order.');
     }
-
-    const maxNumeric = orders.reduce((max, order) => {
-      const numeric = Number(order.id.replace('ORD-', ''));
-      return Number.isNaN(numeric) ? max : Math.max(max, numeric);
-    }, 1000);
-
-    const nextId = `ORD-${maxNumeric + 1}`;
-    setOrders((prev) => [{ id: nextId, ...payload }, ...prev]);
-    resetOrderForm();
   }
 
   function editOrder(order: TailorOrder) {
@@ -316,15 +351,41 @@ function App() {
     setOrderFormError('');
   }
 
-  function deleteOrder(orderId: string) {
-    setOrders((prev) => prev.filter((order) => order.id !== orderId));
-    if (editingOrderId === orderId) {
-      resetOrderForm();
+  async function deleteOrder(orderId: string) {
+    try {
+      await apiRequest<null>(`/api/orders?id=${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+      setOrders((prev) => prev.filter((order) => order.id !== orderId));
+      if (editingOrderId === orderId) {
+        resetOrderForm();
+      }
+    } catch (error) {
+      setOrderFormError(error instanceof Error ? error.message : 'Failed to delete order.');
     }
   }
 
-  function updateOrderStatus(orderId: string, status: OrderStatus) {
-    setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status } : order)));
+  async function updateOrderStatus(orderId: string, status: OrderStatus) {
+    const currentOrder = orders.find((order) => order.id === orderId);
+    if (!currentOrder) {
+      return;
+    }
+
+    try {
+      const updated = await apiRequest<TailorOrder>(`/api/orders?id=${encodeURIComponent(orderId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          customerId: currentOrder.customerId,
+          itemType: currentOrder.itemType,
+          dueDate: currentOrder.dueDate,
+          status,
+          totalPrice: currentOrder.totalPrice,
+          notes: currentOrder.notes,
+        }),
+      });
+
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
+    } catch (error) {
+      setOrderFormError(error instanceof Error ? error.message : 'Failed to update order status.');
+    }
   }
 
   function toggleColumn(column: ColumnKey) {
@@ -348,7 +409,7 @@ function App() {
       return (
         <select
           value={order.status}
-          onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
+          onChange={(e) => void updateOrderStatus(order.id, e.target.value as OrderStatus)}
           className="status-select"
         >
           {statusOptions.map((status) => (
@@ -359,7 +420,7 @@ function App() {
         </select>
       );
     }
-    if (column === 'price') return `$${order.totalPrice.toFixed(2)}`;
+    if (column === 'price') return formatPeso(order.totalPrice);
     return order.notes || '-';
   }
 
@@ -379,7 +440,19 @@ function App() {
         </div>
       </header>
 
-      {viewMode === 'customer' && (
+      {loadError && (
+        <section className="panel">
+          <p className="form-error">{loadError}</p>
+        </section>
+      )}
+
+      {isLoading ? (
+        <section className="panel">
+          <p className="muted-text">Loading customers and orders...</p>
+        </section>
+      ) : null}
+
+      {viewMode === 'customer' && !isLoading && (
         <>
           <section className="metrics-grid">
             <article className="metric-card">
@@ -462,7 +535,7 @@ function App() {
         </>
       )}
 
-      {viewMode === 'admin' && !isAdminLoggedIn && (
+      {viewMode === 'admin' && !isAdminLoggedIn && !isLoading && (
         <section className="panel login-panel">
           <h2>Admin Login</h2>
           <p className="muted-text">Use your admin credentials to manage customers and order lists.</p>
@@ -484,7 +557,7 @@ function App() {
         </section>
       )}
 
-      {viewMode === 'admin' && isAdminLoggedIn && (
+      {viewMode === 'admin' && isAdminLoggedIn && !isLoading && (
         <>
           <section className="metrics-grid">
             <article className="metric-card">
@@ -500,8 +573,8 @@ function App() {
               <strong>{metrics.inProgress}</strong>
             </article>
             <article className="metric-card">
-              <span>Revenue</span>
-              <strong>${metrics.totalRevenue.toFixed(2)}</strong>
+              <span>Revenue (PHP)</span>
+              <strong>{formatPeso(metrics.totalRevenue)}</strong>
             </article>
           </section>
 
@@ -523,7 +596,7 @@ function App() {
                 )}
               </div>
 
-              <form onSubmit={submitCustomer} className="order-form">
+              <form onSubmit={(e) => void submitCustomer(e)} className="order-form">
                 <label>
                   Full Name
                   <input
@@ -593,7 +666,7 @@ function App() {
                           <button className="text-btn" onClick={() => editCustomer(customer)}>
                             Edit
                           </button>{' '}
-                          <button className="danger-btn" onClick={() => deleteCustomer(customer.id)}>
+                          <button className="danger-btn" onClick={() => void deleteCustomer(customer.id)}>
                             Delete
                           </button>
                         </td>
@@ -614,7 +687,7 @@ function App() {
                 )}
               </div>
 
-              <form onSubmit={submitOrder} className="order-form">
+              <form onSubmit={(e) => void submitOrder(e)} className="order-form">
                 <label>
                   Customer
                   <select
@@ -666,7 +739,7 @@ function App() {
                 </label>
 
                 <label>
-                  Price
+                  Price (PHP)
                   <input
                     type="number"
                     min="1"
@@ -760,7 +833,7 @@ function App() {
                             <button className="text-btn" onClick={() => editOrder(order)}>
                               Edit
                             </button>{' '}
-                            <button className="danger-btn" onClick={() => deleteOrder(order.id)}>
+                            <button className="danger-btn" onClick={() => void deleteOrder(order.id)}>
                               Delete
                             </button>
                           </td>
