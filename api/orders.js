@@ -27,6 +27,8 @@ function normalizeOrder(order) {
     status: order.status,
     totalPrice: Number(order.total_price),
     notes: order.notes || '',
+    readyNotifiedAt: order.ready_notified_at || null,
+    deliveredNotifiedAt: order.delivered_notified_at || null,
   };
 }
 
@@ -94,21 +96,39 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'Invalid order payload.' });
       }
 
+      const notificationFields = {};
+      const shouldSendReadyNotification =
+        payload.status === 'Ready' && existingOrder.status !== 'Ready' && !existingOrder.ready_notified_at;
+      const shouldSendDeliveredNotification =
+        payload.status === 'Delivered' &&
+        existingOrder.status !== 'Delivered' &&
+        !existingOrder.delivered_notified_at;
+
+      if (shouldSendReadyNotification) {
+        notificationFields.ready_notified_at = new Date().toISOString();
+      }
+
+      if (shouldSendDeliveredNotification) {
+        notificationFields.delivered_notified_at = new Date().toISOString();
+      }
+
       const [updated] = await supabaseRequest(`/rest/v1/orders?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, ...notificationFields }),
       });
 
-      try {
-        const customer = await getCustomerById(updated.customer_id);
-        await sendStatusNotification({
-          customer,
-          order: updated,
-          previousStatus: existingOrder.status,
-        });
-      } catch (emailError) {
-        console.error('Email notification failed:', emailError);
+      if (shouldSendReadyNotification || shouldSendDeliveredNotification) {
+        try {
+          const customer = await getCustomerById(updated.customer_id);
+          await sendStatusNotification({
+            customer,
+            order: updated,
+            previousStatus: existingOrder.status,
+          });
+        } catch (emailError) {
+          console.error('Email notification failed:', emailError);
+        }
       }
 
       return sendJson(res, 200, normalizeOrder(updated));

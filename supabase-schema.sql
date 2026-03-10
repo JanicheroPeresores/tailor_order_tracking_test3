@@ -15,8 +15,13 @@ create table if not exists public.orders (
   status text not null check (status in ('Pending', 'In Progress', 'Ready', 'Delivered')),
   total_price numeric(12,2) not null check (total_price > 0),
   notes text not null default '',
+  ready_notified_at timestamptz,
+  delivered_notified_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.orders add column if not exists ready_notified_at timestamptz;
+alter table public.orders add column if not exists delivered_notified_at timestamptz;
 
 create index if not exists orders_customer_id_idx on public.orders (customer_id);
 create index if not exists orders_created_at_idx on public.orders (created_at desc);
