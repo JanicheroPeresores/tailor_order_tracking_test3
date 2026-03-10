@@ -118,6 +118,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({ ...payload, ...notificationFields }),
       });
 
+      let notificationError = null;
       if (shouldSendReadyNotification || shouldSendDeliveredNotification) {
         try {
           const customer = await getCustomerById(updated.customer_id);
@@ -128,10 +129,14 @@ export default async function handler(req, res) {
           });
         } catch (emailError) {
           console.error('Email notification failed:', emailError);
+          notificationError = emailError instanceof Error ? emailError.message : 'Email notification failed.';
         }
       }
 
-      return sendJson(res, 200, normalizeOrder(updated));
+      return sendJson(res, 200, {
+        order: normalizeOrder(updated),
+        notificationError,
+      });
     }
 
     if (req.method === 'DELETE') {

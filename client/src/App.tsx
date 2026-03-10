@@ -20,6 +20,8 @@ type TailorOrder = {
   status: OrderStatus;
   totalPrice: number;
   notes: string;
+  readyNotifiedAt?: string | null;
+  deliveredNotifiedAt?: string | null;
 };
 
 type CustomerForm = {
@@ -36,6 +38,11 @@ type OrderForm = {
   status: OrderStatus;
   totalPrice: string;
   notes: string;
+};
+
+type OrderMutationResponse = {
+  order: TailorOrder;
+  notificationError: string | null;
 };
 
 type ColumnKey = 'id' | 'customer' | 'item' | 'due' | 'status' | 'price' | 'notes';
@@ -319,11 +326,15 @@ function App() {
 
     try {
       if (editingOrderId) {
-        const updated = await apiRequest<TailorOrder>(`/api/orders?id=${encodeURIComponent(editingOrderId)}`, {
+        const updated = await apiRequest<OrderMutationResponse>(`/api/orders?id=${encodeURIComponent(editingOrderId)}`, {
           method: 'PATCH',
           body: JSON.stringify(payload),
         });
-        setOrders((prev) => prev.map((order) => (order.id === editingOrderId ? updated : order)));
+        setOrders((prev) => prev.map((order) => (order.id === editingOrderId ? updated.order : order)));
+        if (updated.notificationError) {
+          setOrderFormError(`Order saved, but email failed: ${updated.notificationError}`);
+          return;
+        }
       } else {
         const created = await apiRequest<TailorOrder>('/api/orders', {
           method: 'POST',
@@ -370,7 +381,7 @@ function App() {
     }
 
     try {
-      const updated = await apiRequest<TailorOrder>(`/api/orders?id=${encodeURIComponent(orderId)}`, {
+      const updated = await apiRequest<OrderMutationResponse>(`/api/orders?id=${encodeURIComponent(orderId)}`, {
         method: 'PATCH',
         body: JSON.stringify({
           customerId: currentOrder.customerId,
@@ -382,7 +393,10 @@ function App() {
         }),
       });
 
-      setOrders((prev) => prev.map((order) => (order.id === orderId ? updated : order)));
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? updated.order : order)));
+      if (updated.notificationError) {
+        setOrderFormError(`Order updated, but email failed: ${updated.notificationError}`);
+      }
     } catch (error) {
       setOrderFormError(error instanceof Error ? error.message : 'Failed to update order status.');
     }

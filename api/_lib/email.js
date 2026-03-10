@@ -6,9 +6,26 @@ function hasEmailConfig() {
   return Boolean(RESEND_API_KEY && EMAIL_FROM);
 }
 
-async function sendEmail({ to, subject, html }) {
-  if (!hasEmailConfig() || !to) {
-    return;
+export function getEmailConfigError() {
+  if (!RESEND_API_KEY) {
+    return 'Missing RESEND_API_KEY';
+  }
+
+  if (!EMAIL_FROM) {
+    return 'Missing EMAIL_FROM';
+  }
+
+  return null;
+}
+
+export async function sendEmail({ to, subject, html }) {
+  const configError = getEmailConfigError();
+  if (configError) {
+    throw new Error(configError);
+  }
+
+  if (!to) {
+    throw new Error('Missing recipient email address');
   }
 
   const payload = {
@@ -91,4 +108,3 @@ export async function sendStatusNotification({ customer, order, previousStatus }
     await sendEmail({ to: customer.email, ...email });
   }
 }
-
