@@ -1,4 +1,5 @@
 import { createId, supabaseRequest } from './_lib/supabase.js';
+import { sendStatusNotification } from './_lib/email.js';
 
 const allowedStatuses = new Set(['Pending', 'In Progress', 'Ready', 'Delivered']);
 
@@ -27,6 +28,13 @@ function normalizeOrder(order) {
     totalPrice: Number(order.total_price),
     notes: order.notes || '',
   };
+}
+
+async function getCustomerById(customerId) {
+  const customers = await supabaseRequest(
+    `/rest/v1/customers?id=eq.${encodeURIComponent(customerId)}&select=id,name,email`
+  );
+  return customers[0] || null;
 }
 
 export default async function handler(req, res) {
@@ -68,6 +76,12 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'Order id is required.' });
       }
 
+      const existingOrders = await supabaseRequest(`/rest/v1/orders?id=eq.${encodeURIComponent(id)}&select=*`);
+      const existingOrder = existingOrders[0];
+      if (!existingOrder) {
+        return sendJson(res, 404, { error: 'Order not found.' });
+      }
+
       const payload = buildOrderPayload(req.body);
       if (
         !payload.customer_id ||
@@ -85,6 +99,17 @@ export default async function handler(req, res) {
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify(payload),
       });
+
+      try {
+        const customer = await getCustomerById(updated.customer_id);
+        await sendStatusNotification({
+          customer,
+          order: updated,
+          previousStatus: existingOrder.status,
+        });
+      } catch (emailError) {
+        console.error('Email notification failed:', emailError);
+      }
 
       return sendJson(res, 200, normalizeOrder(updated));
     }
@@ -107,4 +132,3 @@ export default async function handler(req, res) {
     return sendJson(res, 500, { error: error instanceof Error ? error.message : 'Unexpected server error.' });
   }
 }
-
