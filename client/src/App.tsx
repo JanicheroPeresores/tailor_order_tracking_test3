@@ -442,11 +442,11 @@ function App() {
     <div className="app-shell">
       <header className="app-header">
         <h1>Tailor Order Tracking</h1>
-        <p>Customer view for order tracking and admin view for full management.</p>
+        <p>Desk view for order tracking.</p>
 
         <div className="view-switch">
           <button className={viewMode === 'customer' ? 'active-switch' : ''} onClick={() => setViewMode('customer')}>
-            Customer Panel
+            Desk Panel
           </button>
           <button className={viewMode === 'admin' ? 'active-switch' : ''} onClick={() => setViewMode('admin')}>
             Admin Panel
